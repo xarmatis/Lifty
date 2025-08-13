@@ -1,0 +1,21 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Swap/temp files
+*.swp
+*.env
+
+# VSCode settings
+.vscode/
+
+# Logs
+*.log
+
+# Uploaded videos
+app/uploads/
