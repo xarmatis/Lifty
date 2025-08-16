@@ -1,30 +1,33 @@
-# Use slim Python 3.11 image
-FROM python:3.11-slim
+# Use official Python slim image
+FROM python:3.11-slim-bullseye
 
-# Prevent Python from writing .pyc files and enable unbuffered stdout/stderr
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-
-# Ensure /app is in Python path for absolute imports
 ENV PYTHONPATH=/app
 
-# Set working directory inside container
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies for packages like psycopg2, asyncpg
-RUN apt-get update && \
-    apt-get install -y gcc libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Install system dependencies required for OpenCV & Mediapipe
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Copy only requirements first (for Docker caching)
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend source code
+# Copy rest of the app
 COPY . .
 
-# Expose FastAPI port
+# Expose port
 EXPOSE 8000
 
-# Command to run the backend
+# Run FastAPI with Uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

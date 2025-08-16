@@ -1,27 +1,78 @@
-import os
-import uuid
+import cv2
+import mediapipe as mp
+import tempfile
+import shutil
 from fastapi import UploadFile
+import math
 
-# Folder inside the container to save uploads
-UPLOAD_DIR = "/app/uploads"
+mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
 
-# Make sure the directory exists
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+def calculate_angle(a, b, c):
+    """Calculate angle at point b given 3 points"""
+    ba = [a.x - b.x, a.y - b.y]
+    bc = [c.x - b.x, c.y - b.y]
+    dot_product = ba[0]*bc[0] + ba[1]*bc[1]
+    mag_ba = math.hypot(*ba)
+    mag_bc = math.hypot(*bc)
+    if mag_ba * mag_bc == 0:
+        return 0
+    angle = math.acos(dot_product / (mag_ba * mag_bc))
+    return math.degrees(angle)
 
-async def handle_upload(file: UploadFile) -> str:
-    """
-    Save the uploaded file to UPLOAD_DIR and return a unique video ID.
-    """
-    # Generate a unique filename to avoid collisions
-    file_ext = os.path.splitext(file.filename)[1]
-    video_id = str(uuid.uuid4())
-    saved_filename = f"{video_id}{file_ext}"
-    saved_path = os.path.join(UPLOAD_DIR, saved_filename)
+async def process_video(file: UploadFile):
+    # Save uploaded video temporarily
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    with open(temp_file.name, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    # Read the file contents and write to disk
-    with open(saved_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    cap = cv2.VideoCapture(temp_file.name)
+    pose = mp_pose.Pose()
+    feedback = []
 
-    print(f"Saved video {file.filename} as {saved_filename}")
-    return video_id
+    rep_count = 0
+    going_down = False
+    frame_num = 0
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_num += 1
+
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(rgb_frame)
+
+        if results.pose_landmarks:
+            landmarks = results.pose_landmarks.landmark
+
+            # Example for squat: angle at hip
+            shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+            hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+            knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
+
+            hip_angle = calculate_angle(shoulder, hip, knee)
+
+            # Detect reps
+            down_threshold = 90  # angle considered "bottom" of squat
+            up_threshold = 160   # angle considered "standing"
+
+            if hip_angle < down_threshold and not going_down:
+                going_down = True
+            if hip_angle > up_threshold and going_down:
+                rep_count += 1
+                going_down = False
+                # Add feedback for this rep
+                if hip_angle < 80:
+                    feedback.append(f"Rep {rep_count}: Go higher, keep your back straight!")
+                else:
+                    feedback.append(f"Rep {rep_count}: Good form!")
+
+    cap.release()
+
+    return {
+        "frames_analyzed": frame_num,
+        "reps_detected": rep_count,
+        "feedback": feedback if feedback else ["No reps detected, check your form!"]
+    }
