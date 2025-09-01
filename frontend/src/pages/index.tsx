@@ -4,9 +4,10 @@ import { Upload, Loader2, Video, MessageSquare } from "lucide-react";
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [feedback, setFeedback] = useState<string[]>([]);
+  const [feedback, setFeedback] = useState<any>([]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [selectedExercise, setSelectedExercise] = useState<string>('squat');
 
   // Cleanup function to revoke old video URLs
   const cleanupVideoUrl = (url: string | null) => {
@@ -32,13 +33,14 @@ export default function Home() {
     // Simulate progress during upload and analysis
     const progressInterval = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 90) return prev; // Don't go to 100% until we get response
-        return prev + Math.random() * 15;
+        if (prev >= 90) return 90; // Cap at 90% until we get response
+        return Math.min(90, prev + Math.random() * 15); // Ensure we don't exceed 90%
       });
     }, 200);
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("exercise_type", selectedExercise);
 
     try {
       const res = await fetch("http://localhost:8000/videos/analyze-video/", {
@@ -55,7 +57,8 @@ export default function Home() {
       }
 
       const data = await res.json();
-      setFeedback(data.feedback || []);
+      console.log('Backend response:', data);
+      setFeedback(data || []);
       
       // Create video URL and add extensive debugging
       const videoUrl = URL.createObjectURL(file);
@@ -190,9 +193,16 @@ export default function Home() {
           </p>
           <input
             type="file"
-            accept="video/*"
+            accept="video/*,.mp4,.mov,.avi,.MP4,.MOV,.AVI"
             onChange={(e) => {
               const newFile = e.target.files?.[0] || null;
+              
+              // Debug file information
+              if (newFile) {
+                console.log('File selected:', newFile.name);
+                console.log('File type:', newFile.type);
+                console.log('File size:', newFile.size);
+              }
               
               // Clean up previous video URL before setting new file
               if (videoUrl) {
@@ -223,6 +233,47 @@ export default function Home() {
           }}>
             Browse Files
           </label>
+        </div>
+
+        {/* Exercise Selection */}
+        <div style={{
+          marginBottom: '24px',
+          textAlign: 'left'
+        }}>
+          <label style={{
+            display: 'block',
+            marginBottom: '8px',
+            fontSize: '16px',
+            fontWeight: '500',
+            color: '#374151'
+          }}>
+            Select Exercise Type:
+          </label>
+          <select
+            value={selectedExercise}
+            onChange={(e) => {
+              setSelectedExercise(e.target.value);
+              // Clear previous feedback when exercise type changes
+              setFeedback([]);
+              setVideoUrl(null);
+              setProgress(0);
+            }}
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              fontSize: '16px',
+              background: 'white',
+              color: '#374151'
+            }}
+          >
+            <option value="squat">Squat</option>
+            <option value="deadlift">Deadlift</option>
+            <option value="pushup">Push-up</option>
+            <option value="plank">Plank</option>
+            <option value="lunge">Lunge</option>
+          </select>
         </div>
 
         {/* Upload button */}
@@ -339,7 +390,7 @@ export default function Home() {
         )}
 
         {/* Show feedback */}
-        {feedback.length > 0 && (
+        {feedback && (feedback.feedback_per_rep || (Array.isArray(feedback) && feedback.length > 0)) && (
           <div style={sectionStyle}>
             <div style={{
               display: 'flex',
@@ -350,34 +401,175 @@ export default function Home() {
               color: '#2563eb'
             }}>
               <MessageSquare size={24} />
-              <h2 style={{ fontSize: '24px', fontWeight: '600', color: '#1e293b', margin: 0 }}>
-                Form Feedback
-              </h2>
+                             <h2 style={{ fontSize: '24px', fontWeight: '600', color: '#1e293b', margin: 0 }}>
+                 {selectedExercise.charAt(0).toUpperCase() + selectedExercise.slice(1)} Analysis
+               </h2>
             </div>
-            <div style={{ maxWidth: '500px', margin: '0 auto' }}>
-              {feedback.map((fb, index) => (
-                <div key={index} style={{
+            
+                         {/* Exercise Summary */}
+             {feedback && (
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px',
+                border: '1px solid #e2e8f0',
+                textAlign: 'center'
+              }}>
+                <div style={{
                   display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  padding: '16px 20px',
-                  background: 'rgba(255, 255, 255, 0.7)',
-                  borderRadius: '12px',
-                  marginBottom: '12px',
-                  border: '1px solid #d1fae5',
-                  textAlign: 'left' as const
+                  justifyContent: 'space-around',
+                  alignItems: 'center',
+                  marginBottom: '16px'
                 }}>
-                  <div style={{
-                    width: '8px',
-                    height: '8px',
-                    background: '#10b981',
-                    borderRadius: '50%',
-                    marginTop: '8px',
-                    flexShrink: 0
-                  }}></div>
-                  <p style={{ margin: 0, color: '#374151', lineHeight: 1.6 }}>{fb}</p>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Exercise</p>
+                                         <p style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>
+                       {selectedExercise.charAt(0).toUpperCase() + selectedExercise.slice(1)}
+                     </p>
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Reps</p>
+                    <p style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>
+                      {feedback.reps_detected || 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Score</p>
+                    <p style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>
+                      {feedback.overall_score || 0}/100
+                    </p>
+                  </div>
                 </div>
-              ))}
+                
+                {/* Overall Recommendations */}
+                {feedback.summary?.recommendations && (
+                  <div style={{ textAlign: 'left' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Overall Recommendations:
+                    </p>
+                    {feedback.summary.recommendations.map((rec: string, index: number) => (
+                      <p key={index} style={{ 
+                        margin: '4px 0', 
+                        fontSize: '14px', 
+                        color: '#64748b',
+                        paddingLeft: '16px'
+                      }}>
+                        • {rec}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Detailed Feedback Per Rep */}
+            <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+              {feedback.feedback_per_rep ? (
+                feedback.feedback_per_rep.map((rep: any, index: number) => (
+                  <div key={index} style={{
+                    background: 'rgba(255, 255, 255, 0.8)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    {/* Rep Header */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '12px',
+                      paddingBottom: '8px',
+                      borderBottom: '1px solid #e2e8f0'
+                    }}>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        Rep {rep.rep}
+                      </h3>
+                      <div style={{
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        background: rep.score >= 80 ? '#dcfce7' : rep.score >= 60 ? '#fef3c7' : '#fee2e2',
+                        color: rep.score >= 80 ? '#166534' : rep.score >= 60 ? '#92400e' : '#dc2626',
+                        fontSize: '14px',
+                        fontWeight: '500'
+                      }}>
+                        {rep.score}/100
+                      </div>
+                    </div>
+                    
+                    {/* Feedback Points */}
+                    <div style={{ marginBottom: '12px' }}>
+                                             {rep.feedback.map((fb: string, fbIndex: number) => (
+                        <p key={fbIndex} style={{
+                          margin: '8px 0',
+                          fontSize: '14px',
+                          color: '#374151',
+                          lineHeight: 1.5,
+                          paddingLeft: '16px',
+                          position: 'relative'
+                        }}>
+                          <span style={{
+                            position: 'absolute',
+                            left: '0',
+                            top: '8px',
+                            width: '6px',
+                            height: '6px',
+                            background: '#10b981',
+                            borderRadius: '50%'
+                          }}></span>
+                          {fb}
+                        </p>
+                      ))}
+                    </div>
+                    
+                    {/* Metrics */}
+                    {rep.metrics && Object.keys(rep.metrics).length > 0 && (
+                      <div style={{
+                        background: '#f8fafc',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        <p style={{ margin: '0 0 8px 0', fontWeight: '500' }}>Metrics:</p>
+                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                          {Object.entries(rep.metrics).map(([key, value]) => (
+                            <span key={key}>
+                              {key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}: {String(value)}°
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                // Fallback for old format or simple feedback
+                                 feedback.map((fb: string, index: number) => (
+                  <div key={index} style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '16px 20px',
+                    background: 'rgba(255, 255, 255, 0.7)',
+                    borderRadius: '12px',
+                    marginBottom: '12px',
+                    border: '1px solid #d1fae5',
+                    textAlign: 'left' as const
+                  }}>
+                                         <div style={{
+                       width: '8px',
+                       height: '8px',
+                       background: '#10b981',
+                       borderRadius: '50%',
+                       marginTop: '8px',
+                       flexShrink: 0
+                     }}></div>
+                     <p style={{ margin: 0, color: '#374151', lineHeight: 1.6 }}>{fb}</p>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

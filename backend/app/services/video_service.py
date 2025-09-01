@@ -6,16 +6,49 @@ from fastapi import UploadFile
 import math
 import numpy as np
 from typing import Dict, List, Tuple, Optional
+import warnings
+import os
+import logging
+
+# Suppress MediaPipe and Protobuf warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+warnings.filterwarnings('ignore', category=UserWarning, module='absl')
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='google.protobuf')
+
+# Configure logging to suppress MediaPipe warnings
+logging.getLogger('absl').setLevel(logging.ERROR)
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+# Suppress stdout/stderr for MediaPipe initialization
+import sys
+from contextlib import contextmanager
+
+@contextmanager
+def suppress_output():
+    """Context manager to suppress stdout and stderr"""
+    with open(os.devnull, 'w') as devnull:
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = devnull, devnull
+        try:
+            yield
+        finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
 class ExerciseAnalyzer:
     def __init__(self):
-        self.pose = mp_pose.Pose(
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+        # Suppress MediaPipe initialization warnings and output
+        with suppress_output():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.pose = mp_pose.Pose(
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5
+                )
         
         # Exercise detection thresholds
         self.exercise_patterns = {
@@ -48,6 +81,10 @@ class ExerciseAnalyzer:
 
     def calculate_angle(self, a, b, c) -> float:
         """Calculate angle at point b given 3 points"""
+        # Check if any landmark is None
+        if a is None or b is None or c is None:
+            return 0
+            
         ba = [a.x - b.x, a.y - b.y]
         bc = [c.x - b.x, c.y - b.y]
         dot_product = ba[0]*bc[0] + ba[1]*bc[1]
@@ -101,6 +138,15 @@ class ExerciseAnalyzer:
         knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
         ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
         
+        # Check if required landmarks are available
+        if not all([shoulder, hip, knee, ankle]):
+            return {
+                "rep": rep_count,
+                "feedback": ["Unable to analyze form - landmarks not detected. Please ensure your full body is visible in the video."],
+                "score": 0,
+                "metrics": {}
+            }
+        
         hip_angle = self.calculate_angle(shoulder, hip, knee)
         knee_angle = self.calculate_angle(hip, knee, ankle)
         
@@ -122,7 +168,7 @@ class ExerciseAnalyzer:
             score -= 15
         
         # Back angle
-        back_angle = self.calculate_angle(shoulder, hip, mp_pose.PoseLandmark.LEFT_ANKLE)
+        back_angle = self.calculate_angle(shoulder, hip, ankle)
         if back_angle < 45:
             feedback.append("Keep your chest up and back straight!")
             score -= 25
@@ -143,9 +189,19 @@ class ExerciseAnalyzer:
         shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
         knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
+        ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+        
+        # Check if required landmarks are available
+        if not all([shoulder, hip, knee, ankle]):
+            return {
+                "rep": rep_count,
+                "feedback": ["Unable to analyze form - landmarks not detected. Please ensure your full body is visible in the video."],
+                "score": 0,
+                "metrics": {}
+            }
         
         hip_angle = self.calculate_angle(shoulder, hip, knee)
-        back_angle = self.calculate_angle(shoulder, hip, mp_pose.PoseLandmark.LEFT_ANKLE)
+        back_angle = self.calculate_angle(shoulder, hip, ankle)
         
         feedback = []
         score = 100
@@ -178,9 +234,19 @@ class ExerciseAnalyzer:
         elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
         wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
         hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+        ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+        
+        # Check if required landmarks are available
+        if not all([shoulder, elbow, wrist, hip, ankle]):
+            return {
+                "rep": rep_count,
+                "feedback": ["Unable to analyze form - landmarks not detected. Please ensure your full body is visible in the video."],
+                "score": 0,
+                "metrics": {}
+            }
         
         arm_angle = self.calculate_angle(shoulder, elbow, wrist)
-        body_angle = self.calculate_angle(shoulder, hip, mp_pose.PoseLandmark.LEFT_ANKLE)
+        body_angle = self.calculate_angle(shoulder, hip, ankle)
         
         feedback = []
         score = 100
@@ -212,6 +278,15 @@ class ExerciseAnalyzer:
         shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
         ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+        
+        # Check if required landmarks are available
+        if not all([shoulder, hip, ankle]):
+            return {
+                "rep": rep_count,
+                "feedback": ["Unable to analyze form - landmarks not detected. Please ensure your full body is visible in the video."],
+                "score": 0,
+                "metrics": {}
+            }
         
         body_angle = self.calculate_angle(shoulder, hip, ankle)
         
@@ -245,6 +320,15 @@ class ExerciseAnalyzer:
         knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
         ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
         
+        # Check if required landmarks are available
+        if not all([hip, knee, ankle]):
+            return {
+                "rep": rep_count,
+                "feedback": ["Unable to analyze form - landmarks not detected. Please ensure your full body is visible in the video."],
+                "score": 0,
+                "metrics": {}
+            }
+        
         knee_angle = self.calculate_angle(hip, knee, ankle)
         
         feedback = []
@@ -275,8 +359,9 @@ class ExerciseAnalyzer:
             }
         }
 
-async def process_video(file: UploadFile) -> Dict:
+async def process_video(file: UploadFile, exercise_type: str = "squat") -> Dict:
     """Process uploaded video and return exercise analysis"""
+    print(f"Processing video for exercise type: {exercise_type}")
     analyzer = ExerciseAnalyzer()
     
     # Save uploaded video temporarily
@@ -292,7 +377,7 @@ async def process_video(file: UploadFile) -> Dict:
         going_down = False
         frame_num = 0
         
-        # First pass: collect landmarks and detect exercise
+        # First pass: collect landmarks
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -300,7 +385,10 @@ async def process_video(file: UploadFile) -> Dict:
             frame_num += 1
             
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = analyzer.pose.process(rgb_frame)
+            # Suppress MediaPipe processing warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                results = analyzer.pose.process(rgb_frame)
             
             if results.pose_landmarks:
                 landmarks_history.append(results.pose_landmarks.landmark)
@@ -309,12 +397,21 @@ async def process_video(file: UploadFile) -> Dict:
         
         cap.release()
         
-        # Auto-detect exercise type
-        exercise_type = analyzer.detect_exercise_type(landmarks_history)
+        # Use user-selected exercise type instead of auto-detection
+        # exercise_type = analyzer.detect_exercise_type(landmarks_history)
         
         # Second pass: analyze form and count reps
         cap = cv2.VideoCapture(temp_file.name)
         going_down = False
+        last_hip_angle = None
+        
+        # Suppress MediaPipe warnings during processing
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+        
+        print(f"Starting rep detection for {exercise_type}...")
+        print(f"Total frames to analyze: {len(landmarks_history)}")
+        print(f"Exercise thresholds - Down: {analyzer.exercise_patterns[exercise_type]['thresholds']['down']}°, Up: {analyzer.exercise_patterns[exercise_type]['thresholds']['up']}°")
         
         for frame_idx, landmarks in enumerate(landmarks_history):
             if not landmarks:
@@ -328,13 +425,26 @@ async def process_video(file: UploadFile) -> Dict:
                     landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
                 )
                 
-                # Detect reps
-                if hip_angle < analyzer.exercise_patterns['squat']['thresholds']['down'] and not going_down:
-                    going_down = True
-                if hip_angle > analyzer.exercise_patterns['squat']['thresholds']['up'] and going_down:
-                    rep_count += 1
-                    going_down = False
-                    feedback_per_rep.append(analyzer.analyze_squat(landmarks, rep_count))
+                if hip_angle:
+                    # Detect reps with improved logic
+                    if hip_angle < analyzer.exercise_patterns['squat']['thresholds']['down'] and not going_down:
+                        going_down = True
+                        print(f"Frame {frame_idx}: Going down detected (hip_angle: {hip_angle:.1f}°)")
+                    
+                    elif hip_angle > analyzer.exercise_patterns['squat']['thresholds']['up'] and going_down:
+                        rep_count += 1
+                        going_down = False
+                        print(f"Frame {frame_idx}: Rep {rep_count} completed (hip_angle: {hip_angle:.1f}°)")
+                        feedback_per_rep.append(analyzer.analyze_squat(landmarks, rep_count))
+                    
+                    # Reset state if stuck for too long
+                    elif going_down and last_hip_angle and abs(hip_angle - last_hip_angle) < 5:
+                        # If angle hasn't changed much for several frames, reset state
+                        if frame_idx % 10 == 0:  # Check every 10 frames
+                            going_down = False
+                            print(f"Frame {frame_idx}: State reset due to lack of movement")
+                    
+                    last_hip_angle = hip_angle
             
             elif exercise_type == 'deadlift':
                 hip_angle = analyzer.calculate_angle(
@@ -343,12 +453,25 @@ async def process_video(file: UploadFile) -> Dict:
                     landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
                 )
                 
-                if hip_angle < analyzer.exercise_patterns['deadlift']['thresholds']['down'] and not going_down:
-                    going_down = True
-                if hip_angle > analyzer.exercise_patterns['deadlift']['thresholds']['up'] and going_down:
-                    rep_count += 1
-                    going_down = False
-                    feedback_per_rep.append(analyzer.analyze_deadlift(landmarks, rep_count))
+                if hip_angle:
+                    # Detect reps with improved logic
+                    if hip_angle < analyzer.exercise_patterns['deadlift']['thresholds']['down'] and not going_down:
+                        going_down = True
+                        print(f"Frame {frame_idx}: Deadlift going down detected (hip_angle: {hip_angle:.1f}°)")
+                    
+                    elif hip_angle > analyzer.exercise_patterns['deadlift']['thresholds']['up'] and going_down:
+                        rep_count += 1
+                        going_down = False
+                        print(f"Frame {frame_idx}: Deadlift rep {rep_count} completed (hip_angle: {hip_angle:.1f}°)")
+                        feedback_per_rep.append(analyzer.analyze_deadlift(landmarks, rep_count))
+                    
+                    # Reset state if stuck for too long
+                    elif going_down and last_hip_angle and abs(hip_angle - last_hip_angle) < 5:
+                        if frame_idx % 10 == 0:
+                            going_down = False
+                            print(f"Frame {frame_idx}: Deadlift state reset due to lack of movement")
+                    
+                    last_hip_angle = hip_angle
             
             elif exercise_type == 'pushup':
                 arm_angle = analyzer.calculate_angle(
@@ -357,9 +480,9 @@ async def process_video(file: UploadFile) -> Dict:
                     landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
                 )
                 
-                if arm_angle < analyzer.exercise_patterns['pushup']['thresholds']['down'] and not going_down:
+                if arm_angle and arm_angle < analyzer.exercise_patterns['pushup']['thresholds']['down'] and not going_down:
                     going_down = True
-                if arm_angle > analyzer.exercise_patterns['pushup']['thresholds']['up'] and going_down:
+                if arm_angle and arm_angle > analyzer.exercise_patterns['pushup']['thresholds']['up'] and going_down:
                     rep_count += 1
                     going_down = False
                     feedback_per_rep.append(analyzer.analyze_pushup(landmarks, rep_count))
@@ -369,8 +492,40 @@ async def process_video(file: UploadFile) -> Dict:
                 if frame_idx % 30 == 0:
                     rep_count += 1
                     feedback_per_rep.append(analyzer.analyze_plank(landmarks, rep_count))
+            
+            elif exercise_type == 'lunge':
+                knee_angle = analyzer.calculate_angle(
+                    landmarks[mp_pose.PoseLandmark.LEFT_HIP],
+                    landmarks[mp_pose.PoseLandmark.LEFT_KNEE],
+                    landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+                )
+                
+                if knee_angle and knee_angle < analyzer.exercise_patterns['lunge']['thresholds']['down'] and not going_down:
+                    going_down = True
+                if knee_angle and knee_angle > analyzer.exercise_patterns['lunge']['thresholds']['up'] and going_down:
+                    rep_count += 1
+                    going_down = False
+                    feedback_per_rep.append(analyzer.analyze_lunge(landmarks, rep_count))
         
         cap.release()
+        
+        # Check if we ended in the middle of a rep (going down)
+        if going_down:
+            print(f"Video ended while going down. Final rep may be incomplete.")
+            # Optionally analyze the last frame as a partial rep
+            if landmarks_history and landmarks_history[-1]:
+                last_landmarks = landmarks_history[-1]
+                if exercise_type == 'squat':
+                    feedback_per_rep.append(analyzer.analyze_squat(last_landmarks, rep_count + 1))
+                elif exercise_type == 'deadlift':
+                    feedback_per_rep.append(analyzer.analyze_deadlift(last_landmarks, rep_count + 1))
+                elif exercise_type == 'pushup':
+                    feedback_per_rep.append(analyzer.analyze_pushup(last_landmarks, rep_count + 1))
+                elif exercise_type == 'lunge':
+                    feedback_per_rep.append(analyzer.analyze_lunge(last_landmarks, rep_count + 1))
+                rep_count += 1
+        
+        print(f"Rep detection complete. Total reps detected: {rep_count}")
         
         # Calculate overall score
         overall_score = 0
