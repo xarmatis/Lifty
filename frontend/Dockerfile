@@ -10,14 +10,11 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
-# Copy the rest of the app
-COPY . .
-
-# Build Next.js for production
-RUN npm run build
+# Don't copy source code (will be mounted via volume)
+# COPY . .
 
 # Expose port
 EXPOSE 3000
 
-# Start Next.js in production mode
-CMD ["npm", "start"]
+# Start Next.js in development mode
+CMD ["npm", "run", "dev"]

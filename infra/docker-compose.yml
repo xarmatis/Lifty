@@ -6,6 +6,10 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
+    volumes:
+      - ../frontend:/app          # Add this line
+      - /app/node_modules         # Add this line (preserves node_modules)
+    command: npm run dev          # Add this line
 
   backend:
     build: ../backend

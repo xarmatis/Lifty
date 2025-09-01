@@ -9,3 +9,4 @@ databases
 alembic==1.11.1
 opencv-python
 mediapipe
+numpy
